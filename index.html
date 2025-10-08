@@ -58,10 +58,52 @@
       return Object.fromEntries(all);
     }
 
+    // ✅ pastikan session recovery aktif dari URL (diletakkan sebelum ResetPasswordView)
+    async function ensureRecoverySession() {
+      const hashParams = new URLSearchParams(window.location.hash?.substring(1) || "");
+      const searchParams = new URLSearchParams(window.location.search || "");
+      const params = Object.fromEntries(new Map([...hashParams.entries(), ...searchParams.entries()]));
+
+      // kalau sudah ada session aktif, skip
+      const { data: sessNow } = await supabase.auth.getSession();
+      if (sessNow?.session) return { ok: true, reason: "already_have_session" };
+
+      // tipe 1: access_token + refresh_token di fragment hash
+      if (params.access_token && params.refresh_token) {
+        const { error } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        if (error) return { ok: false, error };
+        return { ok: true, reason: "setSession" };
+      }
+
+      // tipe 2: ?code=... (PKCE)
+      if (params.code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(params.code);
+        if (error) return { ok: false, error };
+        return { ok: true, reason: "exchangeCode" };
+      }
+
+      return { ok: false, error: new Error("Token recovery tidak ditemukan di URL.") };
+    }
+
     /* ---------- UI: Reset Password (Recovery) ---------- */
     function ResetPasswordView({ onDone }) {
       const [pw, setPw] = useState("");
       const [loading, setLoading] = useState(false);
+      const [ready, setReady] = useState(false);
+
+      // pastikan session recovery aktif dulu
+      useEffect(() => {
+        (async () => {
+          const res = await ensureRecoverySession();
+          if (!res.ok) {
+            alert("Gagal memuat sesi recovery: " + (res.error?.message || ""));
+          }
+          setReady(true);
+        })();
+      }, []);
 
       async function submit(e) {
         e.preventDefault();
@@ -69,15 +111,22 @@
         setLoading(true);
         const { error } = await supabase.auth.updateUser({ password: pw });
         setLoading(false);
-        if (error) return alert(error.message);
+        if (error) {
+          alert("Gagal menyimpan password: " + error.message);
+          return;
+        }
         alert("Password berhasil diubah. Silakan login kembali.");
-        // bersihkan token dari URL
+
+        // bersihkan URL (hash & query) supaya tidak trigger ulang
         window.location.hash = "";
         const url = new URL(window.location.href);
         url.search = "";
         window.history.replaceState({}, "", url.toString());
+
         onDone && onDone();
       }
+
+      if (!ready) return <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">Menyiapkan sesi...</div>;
 
       return (
         <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">
