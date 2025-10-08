@@ -25,6 +25,20 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
     const supabase = window.supabaseClient;
+    <script type="text/babel">
+  // ...kode kamu
+  window.addEventListener("unhandledrejection", (e) => {
+    console.error("[Global] Unhandled promise rejection:", e.reason);
+    if (typeof e?.reason?.message === "string") {
+      alert("Error: " + e.reason.message);
+    }
+  });
+  window.addEventListener("error", (e) => {
+    console.error("[Global] Error:", e.error || e.message);
+  });
+
+  ReactDOM.createRoot(document.getElementById("app-root")).render(<App />);
+</script>
 
     /* ---------- Shared ---------- */
     function Card({ title, children, extra }) {
@@ -90,47 +104,113 @@
 
     /* ---------- UI: Reset Password (Recovery) ---------- */
     function ResetPasswordView({ onDone }) {
-      const [pw, setPw] = useState("");
-      const [loading, setLoading] = useState(false);
-      const [ready, setReady] = useState(false);
+      const [pw, setPw] = React.useState("");
+      const [loading, setLoading] = React.useState(false);
+      const [ready, setReady] = React.useState(false);
+      const [status, setStatus] = React.useState("Menyiapkan sesi recovery…");
+      const [errMsg, setErrMsg] = React.useState("");
 
-      // pastikan session recovery aktif dulu
-      useEffect(() => {
-        (async () => {
-          const res = await ensureRecoverySession();
-          if (!res.ok) {
-            alert("Gagal memuat sesi recovery: " + (res.error?.message || ""));
-          }
-          setReady(true);
-        })();
+      async function checkSessionOnce() {
+        // Tampilkan param untuk debug
+        const hashParams = new URLSearchParams(window.location.hash?.substring(1) || "");
+        const searchParams = new URLSearchParams(window.location.search || "");
+        console.log("[Recovery] hash params:", Object.fromEntries(hashParams.entries()));
+        console.log("[Recovery] query params:", Object.fromEntries(searchParams.entries()));
+    
+        const res = await ensureRecoverySession();
+        const { data: sess } = await supabase.auth.getSession();
+        console.log("[Recovery] ensure result:", res, "session exists?", !!sess?.session);
+    
+        if (!res.ok) {
+          setStatus("Gagal menyiapkan sesi recovery");
+          setErrMsg(res.error?.message || "Unknown error");
+        } else {
+          setStatus("Sesi recovery siap. Silakan set password baru.");
+          setErrMsg("");
+        }
+        setReady(true);
+      }
+    
+      React.useEffect(() => {
+        checkSessionOnce();
       }, []);
-
+    
       async function submit(e) {
         e.preventDefault();
-        if (!pw || pw.length < 8) return alert("Password minimal 8 karakter.");
-        setLoading(true);
-        const { error } = await supabase.auth.updateUser({ password: pw });
-        setLoading(false);
-        if (error) {
-          alert("Gagal menyimpan password: " + error.message);
+        setErrMsg("");
+        if (!pw || pw.length < 8) {
+          setErrMsg("Password minimal 8 karakter.");
           return;
         }
-        alert("Password berhasil diubah. Silakan login kembali.");
-
-        // bersihkan URL (hash & query) supaya tidak trigger ulang
-        window.location.hash = "";
-        const url = new URL(window.location.href);
-        url.search = "";
-        window.history.replaceState({}, "", url.toString());
-
-        onDone && onDone();
+        setLoading(true);
+        setStatus("Menyimpan password…");
+    
+        try {
+          const { data, error } = await supabase.auth.updateUser({ password: pw });
+          console.log("[Recovery] updateUser result:", { data, error });
+    
+          if (error) {
+            setErrMsg(error.message || "Gagal menyimpan password.");
+            setStatus("Gagal menyimpan password");
+            setLoading(false);
+            return;
+          }
+    
+          setStatus("Password berhasil diubah ✅");
+          setLoading(false);
+    
+          // bersihkan URL (hash & query) supaya tidak trigger ulang
+          window.location.hash = "";
+          const url = new URL(window.location.href);
+          url.search = "";
+          window.history.replaceState({}, "", url.toString());
+    
+          // beri sedikit jeda supaya user lihat statusnya
+          setTimeout(async () => {
+            onDone && onDone();
+          }, 600);
+        } catch (err) {
+          console.error("[Recovery] exception on updateUser:", err);
+          setErrMsg(err?.message || String(err));
+          setStatus("Gagal menyimpan password");
+          setLoading(false);
+        }
       }
-
-      if (!ready) return <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">Menyiapkan sesi...</div>;
-
+    
+      if (!ready) {
+        return (
+          <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">
+            <div className="font-semibold mb-2">Set password baru</div>
+            <div className="text-sm text-slate-600">{status}</div>
+          </div>
+        );
+      }
+    
       return (
         <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">
           <div className="font-semibold mb-2">Set password baru</div>
+    
+          <div className="text-xs mb-3">
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border">
+              <div className="font-medium">Status:</div>
+              <div className="text-slate-700">{status}</div>
+              {errMsg && (
+                <div className="mt-2 text-red-600">
+                  Error: {errMsg}
+                </div>
+              )}
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={checkSessionOnce}
+                  className="px-3 py-1 rounded-lg bg-slate-200 text-sm"
+                >
+                  Cek sesi
+                </button>
+              </div>
+            </div>
+          </div>
+    
           <form onSubmit={submit} className="space-y-3">
             <input
               type="password"
@@ -146,6 +226,7 @@
         </div>
       );
     }
+
 
     /* ---------- UI: Auth Box ---------- */
     function AuthBox({ onLoggedIn }) {
