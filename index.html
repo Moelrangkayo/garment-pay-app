@@ -22,23 +22,10 @@
 <body class="bg-slate-100 min-h-screen">
   <div class="max-w-6xl mx-auto p-6" id="app-root"></div>
 
+  <!-- HANYA SATU script type="text/babel" -->
   <script type="text/babel">
     const { useState, useEffect } = React;
     const supabase = window.supabaseClient;
-    <script type="text/babel">
-  // ...kode kamu
-  window.addEventListener("unhandledrejection", (e) => {
-    console.error("[Global] Unhandled promise rejection:", e.reason);
-    if (typeof e?.reason?.message === "string") {
-      alert("Error: " + e.reason.message);
-    }
-  });
-  window.addEventListener("error", (e) => {
-    console.error("[Global] Error:", e.error || e.message);
-  });
-
-  ReactDOM.createRoot(document.getElementById("app-root")).render(<App />);
-</script>
 
     /* ---------- Shared ---------- */
     function Card({ title, children, extra }) {
@@ -64,7 +51,7 @@
       return data || null;
     }
 
-    // Baca param dari #hash dan ?query (link recovery Supabase bisa lewat keduanya)
+    // param dari #hash & ?query
     function getAuthParams() {
       const hashParams = new URLSearchParams(window.location.hash?.substring(1) || "");
       const searchParams = new URLSearchParams(window.location.search || "");
@@ -72,17 +59,15 @@
       return Object.fromEntries(all);
     }
 
-    // ✅ pastikan session recovery aktif dari URL (diletakkan sebelum ResetPasswordView)
+    // pastikan session recovery aktif
     async function ensureRecoverySession() {
       const hashParams = new URLSearchParams(window.location.hash?.substring(1) || "");
       const searchParams = new URLSearchParams(window.location.search || "");
       const params = Object.fromEntries(new Map([...hashParams.entries(), ...searchParams.entries()]));
 
-      // kalau sudah ada session aktif, skip
       const { data: sessNow } = await supabase.auth.getSession();
       if (sessNow?.session) return { ok: true, reason: "already_have_session" };
 
-      // tipe 1: access_token + refresh_token di fragment hash
       if (params.access_token && params.refresh_token) {
         const { error } = await supabase.auth.setSession({
           access_token: params.access_token,
@@ -91,36 +76,32 @@
         if (error) return { ok: false, error };
         return { ok: true, reason: "setSession" };
       }
-
-      // tipe 2: ?code=... (PKCE)
       if (params.code) {
         const { error } = await supabase.auth.exchangeCodeForSession(params.code);
         if (error) return { ok: false, error };
         return { ok: true, reason: "exchangeCode" };
       }
-
       return { ok: false, error: new Error("Token recovery tidak ditemukan di URL.") };
     }
 
-    /* ---------- UI: Reset Password (Recovery) ---------- */
+    /* ---------- Reset Password (Recovery) ---------- */
     function ResetPasswordView({ onDone }) {
-      const [pw, setPw] = React.useState("");
-      const [loading, setLoading] = React.useState(false);
-      const [ready, setReady] = React.useState(false);
-      const [status, setStatus] = React.useState("Menyiapkan sesi recovery…");
-      const [errMsg, setErrMsg] = React.useState("");
+      const [pw, setPw] = useState("");
+      const [loading, setLoading] = useState(false);
+      const [ready, setReady] = useState(false);
+      const [status, setStatus] = useState("Menyiapkan sesi recovery…");
+      const [errMsg, setErrMsg] = useState("");
 
       async function checkSessionOnce() {
-        // Tampilkan param untuk debug
         const hashParams = new URLSearchParams(window.location.hash?.substring(1) || "");
         const searchParams = new URLSearchParams(window.location.search || "");
         console.log("[Recovery] hash params:", Object.fromEntries(hashParams.entries()));
         console.log("[Recovery] query params:", Object.fromEntries(searchParams.entries()));
-    
+
         const res = await ensureRecoverySession();
         const { data: sess } = await supabase.auth.getSession();
         console.log("[Recovery] ensure result:", res, "session exists?", !!sess?.session);
-    
+
         if (!res.ok) {
           setStatus("Gagal menyiapkan sesi recovery");
           setErrMsg(res.error?.message || "Unknown error");
@@ -130,45 +111,35 @@
         }
         setReady(true);
       }
-    
-      React.useEffect(() => {
-        checkSessionOnce();
-      }, []);
-    
+
+      useEffect(() => { checkSessionOnce(); }, []);
+
       async function submit(e) {
         e.preventDefault();
         setErrMsg("");
-        if (!pw || pw.length < 8) {
-          setErrMsg("Password minimal 8 karakter.");
-          return;
-        }
+        if (!pw || pw.length < 8) { setErrMsg("Password minimal 8 karakter."); return; }
         setLoading(true);
         setStatus("Menyimpan password…");
-    
+
         try {
           const { data, error } = await supabase.auth.updateUser({ password: pw });
           console.log("[Recovery] updateUser result:", { data, error });
-    
           if (error) {
             setErrMsg(error.message || "Gagal menyimpan password.");
             setStatus("Gagal menyimpan password");
             setLoading(false);
             return;
           }
-    
           setStatus("Password berhasil diubah ✅");
           setLoading(false);
-    
-          // bersihkan URL (hash & query) supaya tidak trigger ulang
+
+          // bersihkan URL
           window.location.hash = "";
           const url = new URL(window.location.href);
           url.search = "";
           window.history.replaceState({}, "", url.toString());
-    
-          // beri sedikit jeda supaya user lihat statusnya
-          setTimeout(async () => {
-            onDone && onDone();
-          }, 600);
+
+          setTimeout(async () => { onDone && onDone(); }, 600);
         } catch (err) {
           console.error("[Recovery] exception on updateUser:", err);
           setErrMsg(err?.message || String(err));
@@ -176,7 +147,7 @@
           setLoading(false);
         }
       }
-    
+
       if (!ready) {
         return (
           <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">
@@ -185,32 +156,24 @@
           </div>
         );
       }
-    
+
       return (
         <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">
           <div className="font-semibold mb-2">Set password baru</div>
-    
+
           <div className="text-xs mb-3">
             <div className="px-3 py-2 rounded-lg bg-slate-50 border">
               <div className="font-medium">Status:</div>
               <div className="text-slate-700">{status}</div>
-              {errMsg && (
-                <div className="mt-2 text-red-600">
-                  Error: {errMsg}
-                </div>
-              )}
+              {errMsg && <div className="mt-2 text-red-600">Error: {errMsg}</div>}
               <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={checkSessionOnce}
-                  className="px-3 py-1 rounded-lg bg-slate-200 text-sm"
-                >
+                <button type="button" onClick={checkSessionOnce} className="px-3 py-1 rounded-lg bg-slate-200 text-sm">
                   Cek sesi
                 </button>
               </div>
             </div>
           </div>
-    
+
           <form onSubmit={submit} className="space-y-3">
             <input
               type="password"
@@ -227,8 +190,7 @@
       );
     }
 
-
-    /* ---------- UI: Auth Box ---------- */
+    /* ---------- Auth Box ---------- */
     function AuthBox({ onLoggedIn }) {
       async function signInAsAnonymous() {
         const { error } = await supabase.auth.signInAnonymously();
@@ -236,10 +198,8 @@
         onLoggedIn && onLoggedIn();
       }
       async function signInAdmin() {
-        const email = prompt("Email admin:");
-        if (!email) return;
-        const password = prompt("Password:");
-        if (!password) return;
+        const email = prompt("Email admin:"); if (!email) return;
+        const password = prompt("Password:"); if (!password) return;
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) return alert(error.message);
         onLoggedIn && onLoggedIn();
@@ -250,12 +210,8 @@
             <h1 className="text-xl font-bold mb-2">GarmentPay Hub</h1>
             <p className="text-slate-600 mb-4">Pilih mode masuk</p>
             <div className="flex flex-col gap-3">
-              <button onClick={signInAsAnonymous} className="px-4 py-2 rounded-xl bg-slate-900 text-white">
-                Masuk sebagai Karyawan (Tanpa Email)
-              </button>
-              <button onClick={signInAdmin} className="px-4 py-2 rounded-xl bg-slate-200">
-                Masuk sebagai Admin (Email/Password)
-              </button>
+              <button onClick={signInAsAnonymous} className="px-4 py-2 rounded-xl bg-slate-900 text-white">Masuk sebagai Karyawan (Tanpa Email)</button>
+              <button onClick={signInAdmin} className="px-4 py-2 rounded-xl bg-slate-200">Masuk sebagai Admin (Email/Password)</button>
             </div>
           </div>
           <p className="text-xs text-slate-500 mt-3 text-center">Internal use only</p>
@@ -263,7 +219,7 @@
       );
     }
 
-    /* ---------- Admin components ---------- */
+    /* ---------- Admin ---------- */
     function AddWorkerForm({ onSubmit }) {
       const [name, setName] = useState("");
       const [role, setRole] = useState("Penjahit");
@@ -283,17 +239,12 @@
             <input className="border rounded-xl px-3 py-2 w-full" placeholder="Nama"
                    value={name} onChange={(e)=>setName(e.target.value)} />
             <select className="border rounded-xl px-3 py-2 w-full" value={role} onChange={(e)=>setRole(e.target.value)}>
-              <option>Penjahit</option>
-              <option>Pemotong</option>
-              <option>Finishing</option>
-              <option>Admin</option>
+              <option>Penjahit</option><option>Pemotong</option><option>Finishing</option><option>Admin</option>
             </select>
             <input className="border rounded-xl px-3 py-2 w-full" placeholder="No. HP (opsional)"
                    value={phone} onChange={(e)=>setPhone(e.target.value)} />
           </div>
-          <div className="mt-3">
-            <button className="px-4 py-2 rounded-xl bg-slate-900 text-white">Simpan</button>
-          </div>
+          <div className="mt-3"><button className="px-4 py-2 rounded-xl bg-slate-900 text-white">Simpan</button></div>
         </form>
       );
     }
@@ -308,19 +259,13 @@
       useEffect(() => {
         (async () => {
           const { data: p } = await supabase
-            .from('profiles')
-            .select('id,role,worker_id,created_at')
-            .is('email', null)
-            .is('worker_id', null)
-            .order('created_at', { ascending: false })
-            .limit(50);
+            .from('profiles').select('id,role,worker_id,created_at')
+            .is('email', null).is('worker_id', null)
+            .order('created_at', { ascending: false }).limit(50);
           setUnlinked(p || []);
-
           const { data: w } = await supabase
-            .from('workers')
-            .select('id,name,role,status,created_at')
-            .order('created_at', { ascending: false })
-            .limit(200);
+            .from('workers').select('id,name,role,status,created_at')
+            .order('created_at', { ascending: false }).limit(200);
           setWorkers(w || []);
           setLoading(false);
         })();
@@ -328,8 +273,7 @@
 
       async function linkNow() {
         if (!selectedProfile || !selectedWorker) return alert("Pilih profile anonim dan worker.");
-        const { error } = await supabase
-          .from('profiles')
+        const { error } = await supabase.from('profiles')
           .update({ role: 'karyawan', worker_id: selectedWorker })
           .eq('id', selectedProfile);
         if (error) return alert(error.message);
@@ -352,26 +296,20 @@
           <div className="grid md:grid-cols-2 gap-3">
             <div>
               <div className="text-sm text-slate-600 mb-1">Pilih profile anonim (tanpa email)</div>
-              <select className="border rounded-xl px-3 py-2 w-full"
-                      value={selectedProfile}
-                      onChange={e=>setSelectedProfile(e.target.value)}>
+              <select className="border rounded-xl px-3 py-2 w-full" value={selectedProfile} onChange={e=>setSelectedProfile(e.target.value)}>
                 <option value="">— Pilih profile anonim —</option>
                 {unlinked.map(p => (<option key={p.id} value={p.id}>{p.id}</option>))}
               </select>
             </div>
             <div>
               <div className="text-sm text-slate-600 mb-1">Pilih worker</div>
-              <select className="border rounded-xl px-3 py-2 w-full"
-                      value={selectedWorker}
-                      onChange={e=>setSelectedWorker(e.target.value)}>
+              <select className="border rounded-xl px-3 py-2 w-full" value={selectedWorker} onChange={e=>setSelectedWorker(e.target.value)}>
                 <option value="">— Pilih worker —</option>
                 {workers.map(w => (<option key={w.id} value={w.id}>{w.name} • {w.role}</option>))}
               </select>
             </div>
           </div>
-          <div className="mt-3">
-            <button onClick={linkNow} className="px-4 py-2 rounded-xl bg-slate-900 text-white">Tautkan sekarang</button>
-          </div>
+          <div className="mt-3"><button onClick={linkNow} className="px-4 py-2 rounded-xl bg-slate-900 text-white">Tautkan sekarang</button></div>
           <p className="text-xs text-slate-500 mt-2">Tips: buka app di HP karyawan → klik "Masuk sebagai Karyawan" → akun anonim otomatis terbentuk → logout → admin tautkan di panel ini.</p>
         </Card>
       );
@@ -381,25 +319,20 @@
       const [workers, setWorkers] = useState([]);
       const [loading, setLoading] = useState(true);
 
-      useEffect(() => {
-        (async () => {
-          const { data } = await supabase.from("workers").select("*").order("created_at", { ascending: false });
-          setWorkers(data || []);
-          setLoading(false);
-        })();
-      }, []);
+      useEffect(() => { (async () => {
+        const { data } = await supabase.from("workers").select("*").order("created_at", { ascending: false });
+        setWorkers(data || []); setLoading(false);
+      })(); }, []);
 
       async function addWorker(payload) {
         const { data, error } = await supabase.from("workers").insert(payload).select();
         if (error) { alert(error.message); return; }
         setWorkers(prev => [data[0], ...prev]);
       }
-
       async function addAdvance(worker_id, amount, note = "") {
         const { error } = await supabase.from("advances").insert({ worker_id, amount, note });
         if (error) alert(error.message); else alert("Kasbon tercatat");
       }
-
       async function addWorkLog(worker_id, item_name, qty, rate) {
         const { error } = await supabase.from("work_logs").insert({ worker_id, item_name, qty, rate });
         if (error) alert(error.message); else alert("Log kerja tersimpan");
@@ -412,7 +345,6 @@
           <div className="text-sm text-slate-600">Mode: <b>Admin</b></div>
           <AddWorkerForm onSubmit={addWorker} />
           <LinkAnonProfile />
-
           <div className="grid md:grid-cols-2 gap-4">
             {workers.map(w => (
               <Card key={w.id} title={w.name}>
@@ -420,13 +352,9 @@
                 {w.phone && <div className="text-sm text-slate-600">HP: {w.phone}</div>}
                 <div className="flex flex-wrap gap-2 mt-3">
                   <button className="px-3 py-2 rounded-xl bg-slate-900 text-white"
-                          onClick={() => addAdvance(w.id, 50000, "Kasbon cepat")}>
-                    + Kasbon 50k
-                  </button>
+                          onClick={() => addAdvance(w.id, 50000, "Kasbon cepat")}>+ Kasbon 50k</button>
                   <button className="px-3 py-2 rounded-xl bg-slate-200"
-                          onClick={() => addWorkLog(w.id, "Gamis A", 10, 3000)}>
-                    + Log Kerja (Gamis A x10)
-                  </button>
+                          onClick={() => addWorkLog(w.id, "Gamis A", 10, 3000)}>+ Log Kerja (Gamis A x10)</button>
                 </div>
               </Card>
             ))}
@@ -436,7 +364,7 @@
       );
     }
 
-    /* ---------- Karyawan components ---------- */
+    /* ---------- Karyawan ---------- */
     function KaryawanView({ profile }) {
       const [worker, setWorker] = useState(null);
       const [logs, setLogs] = useState([]);
@@ -448,15 +376,10 @@
           if (!profile?.worker_id) { setLoading(false); return; }
           const { data: w } = await supabase.from("workers").select("*").eq("id", profile.worker_id).maybeSingle();
           setWorker(w || null);
-
-          const { data: wl } = await supabase.from("work_logs").select("*")
-            .eq("worker_id", profile.worker_id).order("created_at", { ascending: false });
+          const { data: wl } = await supabase.from("work_logs").select("*").eq("worker_id", profile.worker_id).order("created_at", { ascending: false });
           setLogs(wl || []);
-
-          const { data: ad } = await supabase.from("advances").select("*")
-            .eq("worker_id", profile.worker_id).order("created_at", { ascending: false });
-          setAdv(ad || []);
-          setLoading(false);
+          const { data: ad } = await supabase.from("advances").select("*").eq("worker_id", profile.worker_id).order("created_at", { ascending: false });
+          setAdv(ad || []); setLoading(false);
         })();
       }, [profile?.worker_id]);
 
@@ -465,14 +388,10 @@
       const estimasiBayar = totalUpah - totalKasbon;
 
       if (loading) return <div className="p-6">Loading...</div>;
-
       if (!worker) {
         return (
           <Card title="Akun belum ditautkan">
-            <div className="text-sm">
-              Akun karyawan ini belum ditautkan ke <code>worker_id</code>.
-              Minta admin untuk menautkan terlebih dahulu.
-            </div>
+            <div className="text-sm">Akun karyawan ini belum ditautkan ke <code>worker_id</code>. Minta admin untuk menautkan terlebih dahulu.</div>
           </Card>
         );
       }
@@ -480,14 +399,12 @@
       return (
         <div className="space-y-4">
           <div className="text-sm text-slate-600">Mode: <b>Karyawan</b> • {worker.name}</div>
-
           <Card title="Ringkasan">
             <div>Total upah: <span className="font-medium"><Money>{totalUpah}</Money></span></div>
             <div>Total kasbon: <span className="font-medium"><Money>{totalKasbon}</Money></span></div>
             <div className="mt-1">Estimasi dibayar:</div>
             <div className="text-xl font-bold"><Money>{estimasiBayar}</Money></div>
           </Card>
-
           <Card title="Log kerja">
             <ul className="space-y-2">
               {logs.map(l => (
@@ -499,7 +416,6 @@
               {!logs.length && <li className="text-sm text-slate-500">Belum ada log kerja.</li>}
             </ul>
           </Card>
-
           <Card title="Kasbon">
             <ul className="space-y-2">
               {adv.map(a => (
@@ -515,13 +431,22 @@
       );
     }
 
-    /* ---------- Root App ---------- */
+    /* ---------- Global error handlers + Render (DI BAWAH SEMUA) ---------- */
+    window.addEventListener("unhandledrejection", (e) => {
+      console.error("[Global] Unhandled promise rejection:", e.reason);
+      if (typeof e?.reason?.message === "string") {
+        alert("Error: " + e.reason.message);
+      }
+    });
+    window.addEventListener("error", (e) => {
+      console.error("[Global] Error:", e.error || e.message);
+    });
+
     function App(){
       const [profile, setProfile] = useState(null);
       const [ready, setReady] = useState(false);
       const [isRecovery, setIsRecovery] = useState(false);
 
-      // Deteksi dari URL (hash atau query)
       useEffect(() => {
         const params = getAuthParams();
         if ((params?.type === "recovery" || params?.next === "recovery") &&
@@ -530,43 +455,20 @@
         }
       }, []);
 
-      // Bootstrap auth & dengarkan event recovery dari Supabase
       useEffect(()=>{ 
-        (async()=>{ 
-          const p = await getCurrentProfile(); 
-          setProfile(p); 
-          setReady(true); 
-        })();
-
+        (async()=>{ const p = await getCurrentProfile(); setProfile(p); setReady(true); })();
         const { data: sub } = supabase.auth.onAuthStateChange(async (event) => {
-          if (event === "PASSWORD_RECOVERY") {
-            setIsRecovery(true);
-          }
-          const p = await getCurrentProfile(); 
-          setProfile(p); 
+          if (event === "PASSWORD_RECOVERY") setIsRecovery(true);
+          const p = await getCurrentProfile(); setProfile(p);
         });
-        return ()=> sub.subscription.unsubscribe(); 
+        return ()=> sub.subscription.unsubscribe();
       },[]);
 
-      async function logout(){ 
-        await supabase.auth.signOut(); 
-        setProfile(null); 
-      }
+      async function logout(){ await supabase.auth.signOut(); setProfile(null); }
 
       if (!ready) return <div className="p-6">Loading...</div>;
-
-      // Mode recovery: tampilkan form set password
-      if (isRecovery) {
-        return <ResetPasswordView onDone={async()=>{ 
-          setIsRecovery(false); 
-          const p = await getCurrentProfile(); 
-          setProfile(p); 
-        }} />;
-      }
-
-      if (!profile) {
-        return <AuthBox onLoggedIn={async()=> setProfile(await getCurrentProfile())}/>;
-      }
+      if (isRecovery) return <ResetPasswordView onDone={async()=>{ setIsRecovery(false); const p = await getCurrentProfile(); setProfile(p); }} />;
+      if (!profile) return <AuthBox onLoggedIn={async()=> setProfile(await getCurrentProfile())}/>;
 
       return (
         <div>
