@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GarmentPay Hub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = "https://YOUR_PROJECT_ID.supabase.co";
+    const SUPABASE_ANON_KEY = "YOUR_ANON_PUBLIC_KEY";
+    window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  </script>
+</head>
+<body class="bg-slate-100 min-h-screen">
+  <div class="max-w-6xl mx-auto p-6" id="app-root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const supabase = window.supabaseClient;
+    function Card({ title, children, extra }) {
+      return (<div className="p-4 bg-white rounded-2xl shadow">
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-semibold">{title}</div>{extra}
+        </div>{children}</div>);
+    }
+    function Money({ children }) { return <span>Rp {Number(children||0).toLocaleString("id-ID")}</span>; }
+    function AuthBox({ onLoggedIn }) {
+      async function signInAsAnonymous(){ const { error } = await supabase.auth.signInAnonymously(); if(error) return alert(error.message); onLoggedIn&&onLoggedIn(); }
+      async function signInAdmin(){ const email=prompt("Email admin:"); if(!email) return; const password=prompt("Password:"); if(!password) return; const { error }=await supabase.auth.signInWithPassword({ email, password }); if(error) return alert(error.message); onLoggedIn&&onLoggedIn(); }
+      return (<div className="max-w-md mx-auto"><div className="p-6 bg-white rounded-2xl shadow text-center">
+        <h1 className="text-xl font-bold mb-2">GarmentPay Hub</h1><p className="text-slate-600 mb-4">Pilih mode masuk</p>
+        <div className="flex flex-col gap-3">
+          <button onClick={signInAsAnonymous} className="px-4 py-2 rounded-xl bg-slate-900 text-white">Masuk sebagai Karyawan (Tanpa Email)</button>
+          <button onClick={signInAdmin} className="px-4 py-2 rounded-xl bg-slate-200">Masuk sebagai Admin (Email/Password)</button>
+        </div></div><p className="text-xs text-slate-500 mt-3 text-center">Internal use only</p></div>);
+    }
+    async function getCurrentProfile(){
+      const { data: { user } } = await supabase.auth.getUser(); if(!user) return null;
+      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(); return data;
+    }
+    function AddWorkerForm({ onSubmit }){
+      const [name,setName]=useState(""); const [role,setRole]=useState("Penjahit"); const [phone,setPhone]=useState("");
+      const submit=async(e)=>{ e.preventDefault(); if(!name.trim()) return; await onSubmit({ name, role, phone: phone||null, status:"Aktif" }); setName(""); setRole("Penjahit"); setPhone(""); };
+      return (<form onSubmit={submit} className="p-4 bg-white rounded-2xl shadow">
+        <div className="font-semibold mb-2">Tambah karyawan</div>
+        <div className="grid md:grid-cols-3 gap-3">
+          <input className="border rounded-xl px-3 py-2 w-full" placeholder="Nama" value={name} onChange={e=>setName(e.target.value)} />
+          <select className="border rounded-xl px-3 py-2 w-full" value={role} onChange={e=>setRole(e.target.value)}>
+            <option>Penjahit</option><option>Pemotong</option><option>Finishing</option><option>Admin</option></select>
+          <input className="border rounded-xl px-3 py-2 w-full" placeholder="No. HP (opsional)" value={phone} onChange={e=>setPhone(e.target.value)} /></div>
+        <div className="mt-3"><button className="px-4 py-2 rounded-xl bg-slate-900 text-white">Simpan</button></div></form>);
+    }
+    function LinkAnonProfile(){
+      const [unlinked,setUnlinked]=useState([]); const [workers,setWorkers]=useState([]); const [loading,setLoading]=useState(true);
+      const [selectedProfile,setSelectedProfile]=useState(""); const [selectedWorker,setSelectedWorker]=useState("");
+      useEffect(()=>{ (async()=>{
+        const { data: p } = await supabase.from('profiles').select('id,role,worker_id,created_at').is('email', null).is('worker_id', null).order('created_at', { ascending:false }).limit(50);
+        setUnlinked(p||[]);
+        const { data: w } = await supabase.from('workers').select('id,name,role,status,created_at').order('created_at', { ascending:false }).limit(200);
+        setWorkers(w||[]); setLoading(false); })(); },[]);
+      async function linkNow(){ if(!selectedProfile||!selectedWorker) return alert("Pilih profile anonim dan worker.");
+        const { error } = await supabase.from('profiles').update({ role:'karyawan', worker_id:selectedWorker }).eq('id', selectedProfile);
+        if(error) return alert(error.message); alert("Profile anonim berhasil ditautkan ke worker.");
+        setUnlinked(unlinked.filter(x=>x.id!==selectedProfile)); setSelectedProfile(""); setSelectedWorker(""); }
+      async function createAnon(){ const { error } = await supabase.auth.signInAnonymously(); if(error) return alert(error.message);
+        alert("Akun anonim dibuat di device ini. Silakan logout, lalu link-kan di panel ini."); }
+      if(loading) return <div className="text-sm">Loading...</div>;
+      return (<Card title="Tautkan akun anonim ke worker"
+        extra={<button onClick={createAnon} className="px-3 py-1 rounded-lg bg-slate-200 text-sm">Buat akun anonim di device ini</button>}>
+        <div className="grid md:grid-cols-2 gap-3">
+          <div><div className="text-sm text-slate-600 mb-1">Pilih profile anonim (tanpa email)</div>
+            <select className="border rounded-xl px-3 py-2 w-full" value={selectedProfile} onChange={e=>setSelectedProfile(e.target.value)}>
+              <option value="">— Pilih profile anonim —</option>{unlinked.map(p=><option key={p.id} value={p.id}>{p.id}</option>)}</select></div>
+          <div><div className="text-sm text-slate-600 mb-1">Pilih worker</div>
+            <select className="border rounded-xl px-3 py-2 w-full" value={selectedWorker} onChange={e=>setSelectedWorker(e.target.value)}>
+              <option value="">— Pilih worker —</option>{workers.map(w=><option key={w.id} value={w.id}>{w.name} • {w.role}</option>)}</select></div>
+        </div>
+        <div className="mt-3"><button onClick={linkNow} className="px-4 py-2 rounded-xl bg-slate-900 text-white">Tautkan sekarang</button></div>
+        <p className="text-xs text-slate-500 mt-2">Tips: buka app di HP karyawan → klik "Masuk sebagai Karyawan" → akun anonim otomatis terbentuk → logout → admin tautkan di panel ini.</p>
+      </Card>); }
+    function AdminView(){
+      const [workers,setWorkers]=useState([]); const [loading,setLoading]=useState(true);
+      useEffect(()=>{ (async()=>{ const { data } = await supabase.from("workers").select("*").order("created_at",{ascending:false}); setWorkers(data||[]); setLoading(false); })(); },[]);
+      async function addWorker(payload){ const { data, error } = await supabase.from("workers").insert(payload).select(); if(error){ alert(error.message); return; } setWorkers(prev=>[data[0],...prev]); }
+      async function addAdvance(worker_id, amount, note=""){ const { error } = await supabase.from("advances").insert({ worker_id, amount, note }); if(error) alert(error.message); else alert("Kasbon tercatat"); }
+      async function addWorkLog(worker_id, item_name, qty, rate){ const { error } = await supabase.from("work_logs").insert({ worker_id, item_name, qty, rate }); if(error) alert(error.message); else alert("Log kerja tersimpan"); }
+      if(loading) return <div className="p-6">Loading...</div>;
+      return (<div className="space-y-6">
+        <div className="text-sm text-slate-600">Mode: <b>Admin</b></div>
+        <AddWorkerForm onSubmit={addWorker} /><LinkAnonProfile />
+        <div className="grid md:grid-cols-2 gap-4">
+          {workers.map(w=>(<Card key={w.id} title={w.name}>
+            <div className="text-sm text-slate-600">{w.role} • {w.status}</div>{w.phone&&<div className="text-sm text-slate-600">HP: {w.phone}</div>}
+            <div className="flex flex-wrap gap-2 mt-3">
+              <button className="px-3 py-2 rounded-xl bg-slate-900 text-white" onClick={()=>addAdvance(w.id,50000,"Kasbon cepat")}>+ Kasbon 50k</button>
+              <button className="px-3 py-2 rounded-xl bg-slate-200" onClick={()=>addWorkLog(w.id,"Gamis A",10,3000)}>+ Log Kerja (Gamis A x10)</button>
+            </div></Card>))}
+          {!workers.length&&<div className="text-sm text-slate-500">Belum ada karyawan.</div>}
+        </div></div>);
+    }
+    function KaryawanView({ profile }){
+      const [worker,setWorker]=useState(null); const [logs,setLogs]=useState([]); const [adv,setAdv]=useState([]); const [loading,setLoading]=useState(true);
+      useEffect(()=>{ (async()=>{
+        if(!profile?.worker_id){ setLoading(false); return; }
+        const { data: w } = await supabase.from("workers").select("*").eq("id", profile.worker_id).maybeSingle(); setWorker(w||null);
+        const { data: wl } = await supabase.from("work_logs").select("*").eq("worker_id", profile.worker_id).order("created_at",{ascending:false}); setLogs(wl||[]);
+        const { data: ad } = await supabase.from("advances").select("*").eq("worker_id", profile.worker_id).order("created_at",{ascending:false}); setAdv(ad||[]);
+        setLoading(false); })(); },[profile?.worker_id]);
+      const totalUpah=logs.reduce((s,r)=>s+(r.qty*r.rate),0); const totalKasbon=adv.reduce((s,r)=>s+r.amount,0); const estimasiBayar=totalUpah-totalKasbon;
+      if(loading) return <div className="p-6">Loading...</div>;
+      if(!worker) return (<Card title="Akun belum ditautkan"><div className="text-sm">Akun karyawan ini belum ditautkan ke <code>worker_id</code>. Minta admin untuk menautkan terlebih dahulu.</div></Card>);
+      return (<div className="space-y-4">
+        <div className="text-sm text-slate-600">Mode: <b>Karyawan</b> • {worker.name}</div>
+        <Card title="Ringkasan"><div>Total upah: <span className="font-medium"><Money>{totalUpah}</Money></span></div>
+          <div>Total kasbon: <span className="font-medium"><Money>{totalKasbon}</Money></span></div>
+          <div className="mt-1">Estimasi dibayar:</div><div className="text-xl font-bold"><Money>{estimasiBayar}</Money></div></Card>
+        <Card title="Log kerja"><ul className="space-y-2">
+          {logs.map(l=>(<li key={l.id} className="text-sm flex justify-between"><span>{l.work_date} • {l.item_name} x{l.qty} @ <Money>{l.rate}</Money></span><span className="font-medium"><Money>{l.qty*l.rate}</Money></span></li>))}
+          {!logs.length&&<li className="text-sm text-slate-500">Belum ada log kerja.</li>}</ul></Card>
+        <Card title="Kasbon"><ul className="space-y-2">
+          {adv.map(a=>(<li key={a.id} className="text-sm flex justify-between"><span>{a.taken_at} • {a.note||"-"}</span><span className="font-medium"><Money>{a.amount}</Money></span></li>))}
+          {!adv.length&&<li className="text-sm text-slate-500">Belum ada kasbon.</li>}</ul></Card></div>);
+    }
+    function App(){
+      const [profile,setProfile]=useState(null); const [ready,setReady]=useState(false);
+      useEffect(()=>{ (async()=>{ const p=await getCurrentProfile(); setProfile(p); setReady(true); })();
+        const { data: sub } = supabase.auth.onAuthStateChange(async()=>{ const p=await getCurrentProfile(); setProfile(p); });
+        return ()=>sub.subscription.unsubscribe(); },[]);
+      async function logout(){ await supabase.auth.signOut(); setProfile(null); }
+      if(!ready) return <div className="p-6">Loading...</div>;
+      if(!profile) return <AuthBox onLoggedIn={async()=>setProfile(await getCurrentProfile())}/>;
+      return (<div><div className="flex items-center justify-between mb-4">
+        <div className="text-sm text-slate-600">Login sebagai: {profile.email||"ANON"} • Role: <b>{profile.role}</b></div>
+        <button onClick={logout} className="px-3 py-2 rounded-xl bg-white shadow text-sm">Logout</button></div>
+        {profile.role==="admin"?<AdminView/>:<KaryawanView profile={profile}/>}</div>);
+    }
+    ReactDOM.createRoot(document.getElementById("app-root")).render(<App />);
+  </script>
+</body>
+</html>
