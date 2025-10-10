@@ -173,22 +173,146 @@
               </div>
             </div>
           </div>
+function ResetPasswordView({ onDone }) {
+  const [pw, setPw] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [ready, setReady] = React.useState(false);
+  const [status, setStatus] = React.useState("Menyiapkan sesi recovery…");
+  const [errMsg, setErrMsg] = React.useState("");
 
-          <form onSubmit={submit} className="space-y-3">
-            <input
-              type="password"
-              className="border rounded-xl px-3 py-2 w-full"
-              placeholder="Password baru (min 8)"
-              value={pw}
-              onChange={(e)=>setPw(e.target.value)}
-            />
-            <button disabled={loading} className="px-4 py-2 rounded-xl bg-slate-900 text-white w-full">
-              {loading ? "Menyimpan..." : "Simpan password"}
-            </button>
-          </form>
-        </div>
-      );
+  // info sesi untuk ditampilkan
+  const [sessInfo, setSessInfo] = React.useState({ hasSession: false, userId: null, exp: null, provider: null });
+
+  async function readSession() {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: sess } = await supabase.auth.getSession();
+    const hasSession = !!sess?.session;
+    const exp = sess?.session?.expires_at ? new Date(sess.session.expires_at * 1000).toLocaleString() : null;
+    // deteksi provider kira-kira dari user metadata
+    const provider = user?.app_metadata?.provider || (user?.email ? "email" : "anonymous");
+    setSessInfo({ hasSession, userId: user?.id || null, exp, provider });
+    return { hasSession };
+  }
+
+  async function tryEnsure() {
+    setStatus("Mengaktifkan sesi dari URL…");
+    const res = await ensureRecoverySession();
+    if (!res.ok) {
+      setStatus("Gagal menyiapkan sesi recovery");
+      setErrMsg(res.error?.message || "Unknown error");
+    } else {
+      setStatus("Sesi recovery siap. Silakan set password baru.");
+      setErrMsg("");
     }
+    await readSession();
+  }
+
+  React.useEffect(() => {
+    (async () => {
+      await tryEnsure();
+      setReady(true);
+    })();
+  }, []);
+
+  async function submit(e) {
+    e.preventDefault();
+    setErrMsg("");
+
+    // pastikan ada sesi recovery AKTIF sebelum update password
+    const { hasSession } = await readSession();
+    if (!hasSession) {
+      setStatus("Tidak ada sesi recovery aktif ❌");
+      setErrMsg("Token tidak terpasang. Klik tombol 'Paksa aktifkan sesi dari URL', atau buka link reset terbaru di domain yang benar.");
+      return;
+    }
+
+    if (!pw || pw.length < 8) {
+      setErrMsg("Password minimal 8 karakter.");
+      return;
+    }
+
+    setLoading(true);
+    setStatus("Menyimpan password…");
+    try {
+      const { data, error } = await supabase.auth.updateUser({ password: pw });
+      console.log("[Recovery] updateUser:", { data, error });
+
+      if (error) {
+        setErrMsg(error.message || "Gagal menyimpan password.");
+        setStatus("Gagal menyimpan password");
+        setLoading(false);
+        return;
+      }
+
+      setStatus("Password berhasil diubah ✅");
+      setLoading(false);
+
+      // bersihkan URL (hash & query)
+      window.location.hash = "";
+      const url = new URL(window.location.href);
+      url.search = "";
+      window.history.replaceState({}, "", url.toString());
+
+      setTimeout(async () => { onDone && onDone(); }, 600);
+    } catch (err) {
+      console.error("[Recovery] exception on updateUser:", err);
+      setErrMsg(err?.message || String(err));
+      setStatus("Gagal menyimpan password");
+      setLoading(false);
+    }
+  }
+
+  if (!ready) {
+    return (
+      <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">
+        <div className="font-semibold mb-2">Set password baru</div>
+        <div className="text-sm text-slate-600">{status}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-md mx-auto mt-6 p-6 bg-white rounded-2xl shadow">
+      <div className="font-semibold mb-2">Set password baru</div>
+
+      {/* panel status */}
+      <div className="text-xs mb-3">
+        <div className="px-3 py-2 rounded-lg bg-slate-50 border">
+          <div className="font-medium">Status:</div>
+          <div className="text-slate-700">{status}</div>
+          {errMsg && <div className="mt-2 text-red-600">Error: {errMsg}</div>}
+
+          <div className="mt-2 grid grid-cols-2 gap-2 text-slate-700">
+            <div>Has session:</div><div className="font-medium">{String(sessInfo.hasSession)}</div>
+            <div>User ID:</div><div className="font-mono break-all">{sessInfo.userId || "-"}</div>
+            <div>Provider:</div><div className="font-medium">{sessInfo.provider || "-"}</div>
+            <div>Session exp:</div><div>{sessInfo.exp || "-"}</div>
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            <button type="button" onClick={tryEnsure}
+              className="px-3 py-1 rounded-lg bg-slate-200 text-sm">Paksa aktifkan sesi dari URL</button>
+            <button type="button" onClick={readSession}
+              className="px-3 py-1 rounded-lg bg-slate-200 text-sm">Refresh info sesi</button>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={submit} className="space-y-3">
+        <input
+          type="password"
+          className="border rounded-xl px-3 py-2 w-full"
+          placeholder="Password baru (min 8)"
+          value={pw}
+          onChange={(e)=>setPw(e.target.value)}
+        />
+        <button disabled={loading} className="px-4 py-2 rounded-xl bg-slate-900 text-white w-full">
+          {loading ? "Menyimpan..." : "Simpan password"}
+        </button>
+      </form>
+    </div>
+  );
+}
 
     /* ---------- Auth Box ---------- */
     function AuthBox({ onLoggedIn }) {
